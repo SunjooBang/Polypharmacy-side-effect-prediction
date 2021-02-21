@@ -274,7 +274,7 @@ else:
 model = GAT(hid_units, n_heads, nb_classes, nb_nodes, Sparse, ffd_drop=ffd_drop, attn_drop=attn_drop,
             activation=tf.nn.elu, residual=False)
 ### save weight_0
-#model.save_weights("./training_1/model_0_weight")
+model.save_weights("./training_1/model_0_weight")  ## fix this initial weight
 
 
 
@@ -451,7 +451,7 @@ for i in range(3): #  outepoch = 3 (0,1,2)
     delta[i+1, :, :] = Errors_k[:, 1:] / Errors_k[:, 0].reshape((-1, 1))  # (N x F) / (N x 1)
     print("delta ", i+1, " was added")
 
-##############################################################################################
+###
 
 np.savetxt('./training_1/GFAN_300epoch_delta_1.csv', delta[1, :, :], delimiter=',')
 np.savetxt('./training_1/GFAN_300epoch_delta_2.csv', delta[2, :, :], delimiter=',')
@@ -461,11 +461,7 @@ np.savetxt('./training_1/GFAN_out_ts.csv', tf.reshape(out_tr, (14247, 1308)), de
 
 
 
-
-
-#############
-
-# test AUC multilabel case
+############### test AUC multilabel case
 model = GAT(hid_units, n_heads, nb_classes, nb_nodes, Sparse, ffd_drop=ffd_drop, attn_drop=attn_drop,
             activation=tf.nn.elu, residual=False)
 
@@ -504,7 +500,9 @@ while ts_step * batch_size < ts_size:
 
 
 
-######### AUC
+
+
+############### AUC per side effects
 
 from sklearn.metrics import roc_auc_score
 
@@ -531,67 +529,6 @@ for mc in range(Poly_Node_Label.shape[1]):  # mc=0~1307
 np.savetxt('./training_1/mc_AUC.csv', mc_AUC, delimiter=',')
 
 
-import numpy as np
-from sklearn.metrics import average_precision_score
-
-
-# precision recall curve
-from sklearn.metrics import precision_recall_curve
-from sklearn.metrics import average_precision_score
-
-
-#precision = dict()
-#recall = dict()
-#average_precision = dict()
-
-
-precision = []
-recall = []
-average_precision = []
-
-for i in range(1308):
-    precision_, recall_, _ = precision_recall_curve(y_test___[:, i],
-                                                        pred_test[:, i])
-    precision.append(precision_)
-    recall.append(recall_)
-    average_precision.append(average_precision_score(y_test___[:, i], pred_test[:, i]))
-
-# A "micro-average": quantifying score on all classes jointly
-precision["micro"], recall["micro"], _ = precision_recall_curve(y_test___.ravel(), pred_test.ravel())
-average_precision["micro"] = average_precision_score(y_test___, pred_test, average="micro")
-print('Average precision score, micro-averaged over all classes: {0:0.2f}'
-      .format(average_precision["micro"]))
-
-##############
 
 
 
-
-
-
-###############
-
-# v_2955_5090 = [CID000002955,CID000005090]: idx 6087, v_1065_5090 = [CID000001065,CID000005090]: idx 955
-Poly_Node.loc[(Poly_Node["STITCH 1"] == "CID000002955") & (Poly_Node["STITCH 2"] == "CID000005090")]
-Poly_Node.loc[(Poly_Node["STITCH 1"] == "CID000001065") & (Poly_Node["STITCH 2"] == "CID000005090")]
-idx_2955_5090 = 6087
-idx_1065_5090 = 955
-last_delta = pd.read_csv('./training_1/GFAN_300epoch_delta_3.csv')
-
-h_2955_5090 = Poly_Node_Feature.loc[idx_2955_5090, :]
-h_1065_5090 = Poly_Node_Feature.loc[idx_1065_5090, :]
-
-delta_2955_5090 = last_delta.loc[idx_2955_5090, :]
-delta_1065_5090 = last_delta.loc[idx_1065_5090, :]
-
-np.savetxt('./training_1/h_2955_5090.csv', h_2955_5090, delimiter=',')
-np.savetxt('./training_1/h_1065_5090.csv', h_1065_5090, delimiter=',')
-np.savetxt('./training_1/delta_2955_5090.csv', delta_2955_5090, delimiter=',')
-np.savetxt('./training_1/delta_1065_5090.csv', delta_1065_5090, delimiter=',')
-
-combo = pd.read_csv('./training_1/bio-decagon-combo.csv')
-combo.head
-combo.columns
-sideeffectsname = combo.loc[:, ['Polypharmacy Side Effect', 'Side Effect Name']]
-sideeffectsname.drop_duplicates()
-sideeffectsname.to_csv(r'./training_1/sideeffectsname.csv', index = False)
