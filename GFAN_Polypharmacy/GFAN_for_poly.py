@@ -18,12 +18,6 @@ Poly_Node_Feature = pd.read_csv ('./Preprocessed_data/Poly_Node_Feature.csv')
 Poly_Edge_list = pd.read_csv ('./Preprocessed_data/Poly_Edge_list.csv')
 
 
-# Read data
-#now_benchmark = 'Poly'
-#Data_file = Poly_Node_Feature[] # feature
-#Adj_file = Poly_Edge_list # adj list not matrix
-#Y_file = Poly_Node_Label # train label
-
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 import tensorflow as tf
@@ -195,11 +189,6 @@ import networkx as nx
 from GFAN_Polypharmacy.utils import *
 from GFAN_Polypharmacy.attn_layers import *
 
-# from models import GAT
-
-
-# from utils import process
-
 
 print('Dataset: ' + dataset)
 print('----- Opt. hyperparams -----')
@@ -277,23 +266,13 @@ model = GAT(hid_units, n_heads, nb_classes, nb_nodes, Sparse, ffd_drop=ffd_drop,
 model.save_weights("./training_1/model_0_weight")  ## fix this initial weight
 
 
-
-############### Delta: feature importance
+###################### Delta: feature importance ##############################################
 
 delta = np.empty((4, Poly_Node_Feature.shape[0], Poly_Node_Feature.shape[1]))
 delta[0, :, :] = np.ones((Poly_Node_Feature.shape[0], Poly_Node_Feature.shape[1]))
 
-
-delta[1, :, :] = pd.read_csv('./training_1/GFAN_300epoch_delta_1.csv', header=None)
-delta[2, :, :] = pd.read_csv('./training_1/GFAN_300epoch_delta_2.csv', header=None)
-delta[3, :, :] = pd.read_csv('./training_1/GFAN_300epoch_delta_3.csv', header=None)
-
-
 train_loss_avg_trend = np.empty((3))  # to plot train_loss per epochs
 val_loss_avg_trend = np.empty((3))   # to plot val_loss per epochs
-
-#np.nan_to_num(np.array(train_loss_avg_trend), copy=False)
-#print(train_loss_avg_trend)
 
 for i in range(3): #  outepoch = 3 (0,1,2)
     print(i)
@@ -304,19 +283,15 @@ for i in range(3): #  outepoch = 3 (0,1,2)
 
 
     ### load weight_0
-    model.load_weights("./training_2/model_"+str(i)+"_weight")
+    model.load_weights("./training_1/model_"+str(i)+"_weight")
 
     vlss_mn = np.inf
     vacc_mx = 0.0
     curr_step = 0
-
     train_loss_avg = 0
-
     train_acc_avg = 0
     val_loss_avg = 0
-
     val_acc_avg = 0
-
     model_number = 0
 
     for epoch in range(nb_epochs):
@@ -371,8 +346,175 @@ for i in range(3): #  outepoch = 3 (0,1,2)
               (train_loss_avg / tr_step, train_acc_avg / tr_step,
                val_loss_avg / vl_step, val_acc_avg / vl_step))
 
-#        train_loss_avg_trend += train_loss_avg / tr_step
-#        val_loss_avg_trend += val_loss_avg / vl_step
+        ###Early Stopping Segment###
+
+        if val_acc_avg / vl_step >= vacc_mx or val_loss_avg / vl_step <= vlss_mn:
+            if val_acc_avg / vl_step >= vacc_mx and val_loss_avg / vl_step <= vlss_mn:
+                vacc_early_model = val_acc_avg / vl_step
+                vlss_early_model = val_loss_avg / vl_step
+                working_weights = model.get_weights()
+            vacc_mx = np.max((val_acc_avg / vl_step, vacc_mx))
+            vlss_mn = np.min((val_loss_avg / vl_step, vlss_mn))
+            curr_step = 0
+        else:
+            curr_step += 1
+            if curr_step == patience:
+                print('Early stop! Min loss: ', vlss_mn, ', Max accuracy: ', vacc_mx)
+                print('Early stop model validation loss: ', vlss_early_model, ', accuracy: ', vacc_early_model)
+                model.set_weights(working_weights)
+                break
+
+
+        train_loss_avg = 0
+        train_acc_avg = 0
+        val_loss_avg = 0
+        val_acc_avg = 0
+
+        print("outepoch i = ", i, " and inepoch = ", epoch)
+
+### save model_1, model_2, model_3
+    model.save_weights("./training_1/model_"+str(i+1)+"_weight")
+    print("saved model_", i+1)
+
+
+
+###
+    Errors_k = np.zeros((Poly_Node_Feature.shape[0], Poly_Node_Feature.shape[1]+1))  # k =0: E_0, k >1: E_k
+    for k in range(Poly_Node_Feature.shape[1]+1):  # 0~3648
+
+        temp_data = np.copy(Poly_Node_Feature)
+        if k == 0:
+            k_0_Poly_Node_Feature= temp_data
+        else:
+            temp_data[:, k-1] = 0
+            k_0_Poly_Node_Feature = temp_data
+
+
+
+        k_0_Poly_Node_Feature = k_0_Poly_Node_Feature[np.newaxis]
+        k_0_tr_step = 0
+        k_0_tr_size = features.shape[0]
+        k_0_tr_acc = 0.0
+        while k_0_tr_step * batch_size < k_0_tr_size:
+
+            if Sparse:
+                bbias = biases
+            else:
+                bbias = biases[k_0_tr_step * batch_size:(k_0_tr_step + 1) * batch_size]
+
+            out_tr, acc_tr, loss_value_tr = evaluate(model,
+                                                inputs=k_0_Poly_Node_Feature[k_0_tr_step * batch_size:(k_0_tr_step + 1) * batch_size],
+                                                bias_mat=bbias,
+                                                lbl_in=y_train[k_0_tr_step * batch_size:(k_0_tr_step + 1) * batch_size],
+                                                msk_in=train_mask[k_0_tr_step * batch_size:(k_0_tr_step + 1) * batch_size],
+                                                training=False)
+
+            k_0_tr_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=out_tr, labels=y_train)  # N x 1
+            k_0_tr_loss = tf.reduce_sum(k_0_tr_loss, axis=0)
+            k_0_tr_loss = tf.reduce_mean(k_0_tr_loss, axis=1)
+            k_0_tr_acc += acc_tr
+            k_0_tr_step += 1
+
+        Errors_k[:, k] = k_0_tr_loss.numpy().T # N x F+1
+
+        print("outepoch i = ", i, " and feature  k = ", k)
+
+    # delta
+    delta[i+1, :, :] = Errors_k[:, 1:] / Errors_k[:, 0].reshape((-1, 1))  # (N x F) / (N x 1)
+    print("delta ", i+1, " was added")
+
+###
+
+np.savetxt('./training_1/GFAN_300epoch_delta_1.csv', delta[1, :, :], delimiter=',')
+np.savetxt('./training_1/GFAN_300epoch_delta_2.csv', delta[2, :, :], delimiter=',')
+np.savetxt('./training_1/GFAN_300epoch_delta_3.csv', delta[3, :, :], delimiter=',')
+np.savetxt('./training_1/GFAN_300epoch_Errors_k.csv', Errors_k, delimiter=',')
+np.savetxt('./training_1/GFAN_out_ts.csv', tf.reshape(out_tr, (14247, 1308)), delimiter=',')
+
+
+
+########################## Training GFAN ##########################################
+
+#delta[1, :, :] = pd.read_csv('./training_1/GFAN_300epoch_delta_1.csv', header=None)
+#delta[2, :, :] = pd.read_csv('./training_1/GFAN_300epoch_delta_2.csv', header=None)
+#delta[3, :, :] = pd.read_csv('./training_1/GFAN_300epoch_delta_3.csv', header=None)
+
+
+train_loss_avg_trend = np.empty((3))  # to plot train_loss per epochs
+val_loss_avg_trend = np.empty((3))   # to plot val_loss per epochs
+
+#np.nan_to_num(np.array(train_loss_avg_trend), copy=False)
+#print(train_loss_avg_trend)
+
+for i in range(3): #  outepoch = 3 (0,1,2)
+    print(i)
+    model = GAT(hid_units, n_heads, nb_classes, nb_nodes, Sparse, ffd_drop=ffd_drop, attn_drop=attn_drop,
+            activation =tf.nn.elu, residual=False)
+
+    features[:, :, :] *= delta[i, :, :]
+
+
+    ### load weight_0
+    model.load_weights("./training_2/model_"+str(i)+"_weight")
+
+    vlss_mn = np.inf
+    vacc_mx = 0.0
+    curr_step = 0
+    train_loss_avg = 0
+    train_acc_avg = 0
+    val_loss_avg = 0
+    val_acc_avg = 0
+    model_number = 0
+
+    for epoch in range(nb_epochs):
+        ###Training Segment###
+        tr_step = 0
+        tr_size = features.shape[0]
+
+        while tr_step * batch_size < tr_size:
+
+            if Sparse:
+                bbias = biases
+            else:
+                bbias = biases[tr_step * batch_size:(tr_step + 1) * batch_size]
+
+            _, acc_tr, loss_value_tr = train(model,
+                                             inputs=features[tr_step * batch_size:(tr_step + 1) * batch_size],
+                                             bias_mat=bbias,
+                                             lbl_in=y_train[tr_step * batch_size:(tr_step + 1) * batch_size],
+                                             msk_in=train_mask[tr_step * batch_size:(tr_step + 1) * batch_size],
+                                             training=True)
+            train_loss_avg += loss_value_tr
+            train_acc_avg += acc_tr
+            tr_step += 1
+
+
+
+        ###Validation Segment###
+        vl_step = 0
+        vl_size = features.shape[0]
+        while vl_step * batch_size < vl_size:
+
+            if Sparse:
+                bbias = biases
+            else:
+                bbias = biases[vl_step * batch_size:(vl_step + 1) * batch_size]
+            _, acc_vl, loss_value_vl = evaluate(model,
+                                                inputs=features[vl_step * batch_size:(vl_step + 1) * batch_size],
+                                                bias_mat=bbias,
+                                                lbl_in=y_val[vl_step * batch_size:(vl_step + 1) * batch_size],
+                                                msk_in=val_mask[vl_step * batch_size:(vl_step + 1) * batch_size],
+                                                training=False)
+            val_loss_avg += loss_value_vl
+            val_acc_avg += acc_vl
+            vl_step += 1
+
+
+        print('Training: loss = %.5f, acc = %.5f | Val: loss = %.5f, acc = %.5f' %
+              (train_loss_avg / tr_step, train_acc_avg / tr_step,
+               val_loss_avg / vl_step, val_acc_avg / vl_step))
+
+
 
         ###Early Stopping Segment###
 
@@ -451,24 +593,13 @@ for i in range(3): #  outepoch = 3 (0,1,2)
     delta[i+1, :, :] = Errors_k[:, 1:] / Errors_k[:, 0].reshape((-1, 1))  # (N x F) / (N x 1)
     print("delta ", i+1, " was added")
 
-###
-
-np.savetxt('./training_1/GFAN_300epoch_delta_1.csv', delta[1, :, :], delimiter=',')
-np.savetxt('./training_1/GFAN_300epoch_delta_2.csv', delta[2, :, :], delimiter=',')
-np.savetxt('./training_1/GFAN_300epoch_delta_3.csv', delta[3, :, :], delimiter=',')
-np.savetxt('./training_1/GFAN_300epoch_Errors_k.csv', Errors_k, delimiter=',')
-np.savetxt('./training_1/GFAN_out_ts.csv', tf.reshape(out_tr, (14247, 1308)), delimiter=',')
-
 
 
 ############### test AUC multilabel case
 model = GAT(hid_units, n_heads, nb_classes, nb_nodes, Sparse, ffd_drop=ffd_drop, attn_drop=attn_drop,
             activation=tf.nn.elu, residual=False)
 
-
-model.load_weights("./training_1/model_3_weight")
-
-
+model.load_weights("./training_2/model_3_weight")
 
 temp_data = np.copy(Poly_Node_Feature)
 Poly_Node_Feature = temp_data
